@@ -1,24 +1,40 @@
 defmodule JsonParser do
-  def parse(data) do
-    {result, _} =
-      String.replace(data, "\n", "")
-      |> String.split(":")
-      |> Enum.map(fn x -> String.trim(x) end)
-      |> Enum.reduce({%{}, ""}, fn current, {acc, key} ->
-        if key == "" || String.starts_with?(current, "{\"") do
-          nkey = String.replace_prefix(current, "{", "") |> String.replace("\"", "")
-          {Map.put(acc, nkey, nil), nkey}
-        else
-          nVal = String.replace_suffix(current, "}", "") |> String.replace("\"", "")
+  @tokens [
+    open_bracket: ~r/^{/,
+    open_list: ~r/^\[/,
+    key: ~r/"([^"]+)"\s*:/,
+    string: ~r/"([^"]*)",?/,
+    number: ~r/[0-9]+/,
+    closed_list: ~r/\]/,
+    closed_bracket: ~r/}/,
+    comma: ~r/,/
+  ]
 
-          if String.ends_with?(current, "}") do
-            {Map.put(acc, key, nVal), ""}
-          else
-            {Map.put(acc, key, current), key}
-          end
-        end
-      end)
+  def tokenize(data) do
+    tokenize(data, [])
+  end
 
-    result
+  def tokenize(data, total) do
+    case tokenize_one(String.trim(data)) do
+      nil ->
+        Enum.reverse(total)
+
+      {key, match, rest} ->
+        tokenize(rest, [{key, match} | total])
+    end
+  end
+
+  defp tokenize_one(data) do
+    Enum.find_value(@tokens, fn {key, regex} ->
+      case Regex.run(regex, data) do
+        nil ->
+          nil
+
+        [full | captures] ->
+          result = List.first(captures) || full
+          rest = String.trim_leading(String.slice(data, String.length(full)..-1//1))
+          {key, result, rest}
+      end
+    end)
   end
 end
