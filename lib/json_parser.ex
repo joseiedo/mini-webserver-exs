@@ -37,4 +37,38 @@ defmodule JsonParser do
       end
     end)
   end
+
+  def parse(data) do
+    parse(data, nil, nil)
+  end
+
+  def parse([], _, json) do
+    json
+  end
+
+  def parse(data, key, json) do
+    [current | rest] = data
+    {token_type, value} = current
+
+    case token_type do
+      :open_bracket ->
+        if key != nil do
+          Map.put(json, key, parse(rest, key, Map.new()))
+        else
+          parse(rest, key, Map.new())
+        end
+
+      :closed_bracket ->
+        parse(rest, nil, json)
+
+      :key ->
+        parse(rest, String.to_atom(value), json)
+
+      :number ->
+        parse(rest, nil, Map.put(json, key, String.to_integer(value)))
+
+      nil ->
+        json
+    end
+  end
 end
