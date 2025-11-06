@@ -1,38 +1,48 @@
 defmodule JsonParser do
-  @tokens [
-    open_bracket: ~r/^{/,
-    open_list: ~r/^\[/,
-    key: ~r/"([^"]+)"\s*:/,
-    string: ~r/"([^"]*)",?/,
-    number: ~r/[0-9]+/,
-    closed_list: ~r/\]/,
-    closed_bracket: ~r/}/,
-    comma: ~r/,/
-  ]
+  def tokenize(<<>>, tokens), do: Enum.reverse(tokens)
 
-  def tokenize(data), do: tokenize(data, [])
+  def tokenize(<<char, rest::binary>> = data, tokens) do
+    case char do
+      ?" ->
+        {string, remaining} = parse_string(rest)
+        tokenize(remaining, [{:string, string} | tokens])
 
-  defp tokenize("", total), do: Enum.reverse(total)
+      c when c in ?0..?9 ->
+        tokenize(rest, [{:number, String.to_integer(<<c>>)} | tokens])
 
-  defp tokenize(data, total) do
-    case tokenize_one(String.trim(data)) do
-      nil -> Enum.reverse(total)
-      {key, match, rest} -> tokenize(rest, [{key, match} | total])
+      c when c in [?{, ?}, ?[, ?], ?:, ?,] ->
+        type =
+          case c do
+            ?{ -> :open_bracket
+            ?} -> :closed_bracket
+            ?[ -> :open_list
+            ?] -> :closed_list
+            ?: -> :colon
+            ?, -> :comma
+          end
+
+        tokenize(rest, [{type, nil} | tokens])
+
+      c when c in [?\s, ?\n, ?\t, ?\r] ->
+        tokenize(rest, tokens)
+
+      _ ->
+        raise ArgumentError, "Unexpected character: #{inspect(<<char>>)} in #{inspect(data)}"
     end
   end
 
-  defp tokenize_one(data) do
-    Enum.find_value(@tokens, fn {key, regex} ->
-      case Regex.run(regex, data) do
-        nil ->
-          false
+  def tokenize(<<json::binary>>), do: tokenize(json, [])
 
-        [full | captures] ->
-          result = List.first(captures) || full
-          rest = String.trim_leading(String.slice(data, String.length(full)..-1//1))
-          {key, result, rest}
-      end
-    end)
+  def parse_string(data) do
+    case :binary.match(data, "\"") do
+      {pos, _len} ->
+        result = :binary.part(data, 0, pos)
+        remaining = :binary.part(data, pos + 1, byte_size(data) - pos - 1)
+        {result, remaining}
+
+      :nomatch ->
+        {data, <<>>}
+    end
   end
 
   def parse(tokens), do: parse(tokens, nil, %{}) |> elem(1)
@@ -49,17 +59,59 @@ defmodule JsonParser do
       :closed_bracket ->
         {rest, json}
 
-      :key ->
-        parse(rest, String.to_atom(value), json)
+      :open_list ->
+        {remaining, value} = parse_list(rest, [])
+
+        # If this was a real parser, probably I would need to change things.
+        # I'm happy this is not the case :)
+        if key do
+          parse(remaining, nil, Map.put(json, key, value))
+        else
+          {[], value}
+        end
+
+      :comma ->
+        {rest, json}
 
       :number ->
-        parse(rest, nil, Map.put(json, key, String.to_integer(value)))
-
-      :string ->
         parse(rest, nil, Map.put(json, key, value))
 
+      :string ->
+        [next_token | remaining] = rest
+
+        case next_token do
+          {:colon, nil} -> parse(remaining, String.to_atom(value), json)
+          _ -> parse(rest, nil, Map.put(json, key, value))
+        end
+
       _ ->
-        raise("Not implemented yet #{token_type}")
+        raise("Unnexpected token #{token_type} when parsing json")
+    end
+  end
+
+  defp parse_list([], list), do: {[], list}
+
+  defp parse_list([{token_type, value} | rest], list) do
+    case token_type do
+      :open_bracket ->
+        {rest, object} = parse(rest, nil, %{})
+        parse_list(rest, [object | list])
+
+      :open_list ->
+        {remaining, inner_list} = parse_list(rest, [])
+        parse_list(remaining, [inner_list | list])
+
+      :closed_list ->
+        {rest, Enum.reverse(list)}
+
+      :comma ->
+        parse_list(rest, list)
+
+      type when type in [:string, :number] ->
+        parse_list(rest, [value | list])
+
+      _ ->
+        raise("Unnexpected token #{token_type} when parsing list")
     end
   end
 end
