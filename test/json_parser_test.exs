@@ -1,6 +1,28 @@
 defmodule JsonParserTest do
   use ExUnit.Case
 
+  test "should map booleans correctly" do
+    input = ~s({
+      "foo": true,
+      "bar": false
+    })
+    expected = [
+      open_bracket: nil,
+      string: "foo",
+      colon: nil,
+      boolean: true,
+      comma: nil,
+      string: "bar",
+      colon: nil,
+      boolean: false,
+      closed_bracket: nil,
+    ]
+
+    result = JsonParser.tokenize(input)
+
+    assert expected == result
+  end
+
   test "should map tokens correctly when simple json" do
     input = ~s({
       "foo": 1

@@ -1,4 +1,6 @@
 defmodule HttpServer do
+  require Logger
+
   def start do
     case :gen_tcp.listen(4040, [:binary, reuseaddr: true, active: false]) do
       {:ok, socket} ->
@@ -21,7 +23,10 @@ defmodule HttpServer do
 
   defp handle_request(client) do
     case :gen_tcp.recv(client, 0) do
-      {:ok, data} -> IO.puts("Request chegou: \n #{data}")
+      {:ok, data} -> 
+        {_, body} = parse_data(data)
+        json = JsonParser.read(body)
+        Logger.debug("Request chegou: \n #{inspect(json)}")
       {:error, reason} -> IO.puts("Deu ruim meu fi: #{reason}")
     end
 
@@ -29,13 +34,10 @@ defmodule HttpServer do
   end
 
   def parse_data(data) when is_binary(data) do
-    [header, body] =
       String.split(data, "\r\n\r\n", parts: 2, trim: false)
       |> case do
-        [header] -> [header, ""]
-        [header, body] -> [:header, header, :body, body]
+        [header] -> {header, ""}
+        [header, body] -> {header, body}
       end
-
-    %{header: header, body: body}
   end
 end

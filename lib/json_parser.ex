@@ -1,5 +1,11 @@
 defmodule JsonParser do
   require Logger
+
+  def read(data) do
+    tokens = tokenize(data)
+    parse(tokens)
+  end
+
   def tokenize(<<>>, tokens), do: Enum.reverse(tokens)
 
   def tokenize(<<char, rest::binary>> = data, tokens) do
@@ -7,6 +13,24 @@ defmodule JsonParser do
       ?" ->
         {string, remaining} = parse_string(rest)
         tokenize(remaining, [{:string, string} | tokens])
+
+      ?t ->
+        case rest do
+          <<"rue", remaining::binary>> ->
+            tokenize(remaining, [{:boolean, true} | tokens])
+
+          _ ->
+            tokenize(rest, tokens)
+        end
+
+      ?f ->
+        case rest do
+          <<"alse", remaining::binary>> ->
+            tokenize(remaining, [{:boolean, false} | tokens])
+
+          _ ->
+            tokenize(rest, tokens)
+        end
 
       c when c in ?0..?9 ->
         {digits, remaining} = parse_integer(data)
